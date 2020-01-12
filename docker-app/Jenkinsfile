@@ -1,0 +1,122 @@
+def user_apikey
+
+withCredentials([string(credentialsId: <arti-apikey-credential-name>, variable: 'secret_text')]) {
+    user_apikey = "${secret_text}"
+}
+
+node {
+	def rtServer
+	def buildInfo
+	def rtDocker
+	def tagDockerApp
+
+	stage('Prepare') {
+	    
+        // Cleanup workspace
+        deleteDir()
+
+		rtServer = Artifactory.server('<arti-server-name>') //From Jenkins System config
+		buildInfo = Artifactory.newBuildInfo()
+		buildInfo.env.capture = true
+        rtDocker = Artifactory.docker server: rtServer
+        rtDocker.addProperty("unit-test","pass")
+	}
+	
+	stage('SCM') {
+        //Clone example project from GitHub repository
+        git url: 'https://github.com/xingao0803/k8s_pipeline.git', branch : 'master'
+	}    
+    
+    //Fetch latest available Gradle from Artifactory
+    stage ('GetGradle') {
+        dir ('docker-app') {
+            sh "chmod 777 query-aql"
+            def command = "./query-aql ${user_apikey} oneGradle.aql"
+            def latestVersion = sh returnStdout: true , script: command
+            latestVersion = latestVersion.trim()
+            echo "latestVersion:" + latestVersion
+            try {
+                println "Gather latest available Gradle war"
+                def gradleWarDownload = """{
+                    "files": [
+                      {
+                        "pattern": "k8sPipeline-gradle-dev-local/org/jfrog/example/gradle/webservice/${latestVersion}/*.war",
+                        "target": "war/webservice.war",
+                        "flat": "true"
+                      }
+                    ]
+                 }"""
+                rtServer.download(gradleWarDownload, buildInfo )
+            } catch (Exception e) {
+                println "Caught Exception during resolution. Message ${e.message}"
+                throw e
+            }
+        }
+    }
+
+    //Build docker image named docker-app
+    stage ('Build & Deploy') {
+        dir ('docker-app') {
+            sh "sed -i '' 's&docker.artifactory&${ARTDOCKER_REGISTRY}/${LIB_REPO}&' Dockerfile"
+            tagDockerApp = "${ARTDOCKER_REGISTRY}/${DEV_REPO}/docker-app:${env.BUILD_NUMBER}"
+            println "Docker App Build"
+            docker.build(tagDockerApp)
+            println "Docker push" + tagDockerApp + " : " + DEV_REPO
+            buildInfo = rtDocker.push(tagDockerApp, DEV_REPO, buildInfo)
+            println "Docker Buildinfo"
+            rtServer.publishBuildInfo buildInfo
+        }
+    }
+
+    //Test docker image
+    stage('Test') {
+        def commandText = "curl  -H \"X-JFrog-Art-Api: ${user_apikey}\" -X PUT \"http://localhost:9081/artifactory/api/storage/${DEV_REPO}/docker-app/${env.BUILD_NUMBER}?properties=Functest=pass;BuildTag=${env.BUILD_NUMBER}\" ";
+	    sh commandText        
+    }
+    
+    //Scan Build Artifacts in Xray
+    stage('Xray Scan') {
+        if (XRAY_SCAN == "YES") {
+            def xrayConfig = [
+                'buildName'     : env.JOB_NAME,
+                'buildNumber'   : env.BUILD_NUMBER,
+                'failBuild'     : false
+            ]
+            def xrayResults = rtServer.xrayScan xrayConfig
+            echo xrayResults as String
+            sleep 60
+        } else {
+            println "No Xray scan performed. To enable set XRAY_SCAN = YES"
+        }
+    }
+
+    //Promote docker image from dev repo to production repo in Artifactory
+    stage ('Promote') {
+        dir('docker-app/app-test') {
+            def promotionConfig = [
+              'buildName'          : env.JOB_NAME,
+              'buildNumber'        : env.BUILD_NUMBER,
+              'targetRepo'         : RELEASE_REPO,
+              'comment'            : 'App works with latest released version of gradle app, tomcat and jdk',
+              'sourceRepo'         : DEV_REPO,
+              'status'             : 'Released',
+              'includeDependencies': false,
+              'copy'               : true
+            ]
+            rtServer.promote promotionConfig
+        }
+    }
+    
+    stage('reTagLatest') {
+        dir ('docker-app') {
+                def BUILD_NUMBER = env.BUILD_NUMBER
+                sh 'sed -E "s/@/$BUILD_NUMBER/" retag.json > retag_out.json'
+                sh 'sed -E "s/TARGETREPO/${RELEASE_REPO}/" retag_out.json > retaga_out.json'
+                sh 'cat retaga_out.json'
+                def commandText = "curl -H \"Content-Type: application/json\" -H \"X-JFrog-Art-Api: ${user_apikey}\" -X POST \"http://localhost:9081/artifactory/api/docker/${RELEASE_REPO}/v2/promote\" -T retaga_out.json ";
+	            sh commandText
+        }
+    }
+    
+}
+
