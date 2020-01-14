@@ -1,6 +1,6 @@
 def user_apikey
 
-withCredentials([string(credentialsId: <arti-apikey-credential-name>, variable: 'secret_text')]) {
+withCredentials([string(credentialsId: 'jcr-key', variable: 'secret_text')]) {
     user_apikey = "${secret_text}"
 }
 
@@ -11,7 +11,7 @@ node {
 	def tagName
 
 	stage('Prepare') {
-		rtServer = Artifactory.server(<arti-server-name>) //From Jenkins System config
+		rtServer = Artifactory.server('arti-jcr')
 		buildInfo = Artifactory.newBuildInfo()
 		buildInfo.env.capture = true
         rtDocker = Artifactory.docker server: rtServer
@@ -20,7 +20,8 @@ node {
 	
 	stage('SCM') {
         //Clone example project from GitHub repository
-        git url: 'https://github.com/xingao0803/k8s_pipeline.git', branch : 'master'
+        //git url: 'https://github.com/xingao0803/jcr_pipeline.git', branch : 'master'
+        sh "cp -r /Users/xingao/Training/jcr_pipeline/jcr_pipeline/ ."
 	}
 
     //Fetch all depensencies from Artifactory
@@ -76,7 +77,7 @@ node {
     
     //Test docker image
     stage('Test') {
-        def commandText = "curl  -H \"X-JFrog-Art-Api: ${user_apikey}\" -X PUT \"http://localhost:9081/artifactory/api/storage/${DEV_REPO}/docker-framework/${env.BUILD_NUMBER}?properties=Functest=pass;BuildTag=${env.BUILD_NUMBER}\" ";
+        def commandText = "curl  -H \"X-JFrog-Art-Api: ${user_apikey}\" -X PUT \"http://arti.local:9081/artifactory/api/storage/${DEV_REPO}/docker-framework/${env.BUILD_NUMBER}?properties=Functest=pass;BuildTag=${env.BUILD_NUMBER}\" ";
 	    sh commandText        
     }
 
@@ -86,7 +87,7 @@ node {
                 sh 'sed -E "s/@/$BUILD_NUMBER/" retag.json > retag_out.json'
                 sh 'sed -E "s/TARGETREPO/${DEV_REPO}/" retag_out.json > retaga_out.json'
                 sh 'cat retaga_out.json'
-                def commandText = "curl -H \"Content-Type: application/json\" -H \"X-JFrog-Art-Api: ${user_apikey}\" -X POST \"http://localhost:9081/artifactory/api/docker/${DEV_REPO}/v2/promote\" -T retaga_out.json ";
+                def commandText = "curl -H \"Content-Type: application/json\" -H \"X-JFrog-Art-Api: ${user_apikey}\" -X POST \"http://arti.local:9084/artifactory/api/docker/${DEV_REPO}/v2/promote\" -T retaga_out.json ";
 	            sh commandText
         }
     }

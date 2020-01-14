@@ -1,4 +1,4 @@
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ template "docker-app.fullname" . }}
@@ -9,6 +9,10 @@ metadata:
     app: {{ template "docker-app.name" . }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "docker-app.name" . }}
+      release: {{ .Release.Name }}
   strategy:
     rollingUpdate:
       maxSurge: 0

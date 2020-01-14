@@ -20,8 +20,6 @@
 3.  Create new Jenkins Pipeline Job.
 
 4.  Add String Parameters:
-    *   XRAY_SCAN (Choice Parameter) : Xray Scan. Applicable only if you are using JFrog Xray<Br>
-    	e.g. `XRAY_SCAN -> NO`
     *   CLEAN_REPO (Choice Parameter) : Clean gradle cache before building project<Br>
     	e.g. `CLEAN_REPO -> YES`
     	

@@ -1,6 +1,6 @@
-def user_apikey
+ef user_apikey
 
-withCredentials([string(credentialsId: <credential-for-arti-apikey>, variable: 'secret_text')]) {
+withCredentials([string(credentialsId: 'jcr-key', variable: 'secret_text')]) {
     user_apikey = "${secret_text}"
 }
 
@@ -12,50 +12,72 @@ node {
 	def warVersion
 
 	stage('Prepare') {
-		server = Artifactory.server(<Arifactory-Server-Name>) //System name from Jenkins configuration
+		server = Artifactory.server('arti-oss')
 		buildInfo = Artifactory.newBuildInfo()
 		buildInfo.env.capture = true
 		rtGradle = Artifactory.newGradleBuild()
+		
+		jcrServer = Artifactory.server('arti-jcr')
 	}
 
     //Configure Artifactroy repository to pull/push artifacts
-    stage 'Artifactory configuration'
-        rtGradle.tool = <Gradle-Tool-Name> // Tool name from Jenkins configuration
-        rtGradle.deployer repo:'<gradle-local-repo-name>', server: server
-        rtGradle.resolver repo:'<gradle-virtual-repo-name>', server: server
-        rtGradle.deployer.addProperty("unit-test", "pass").addProperty("qa-team", "platform", "ui")
+    stage('Artifactory configuration') {
+        rtGradle.tool = 'demo-gradle' // Tool name from Jenkins configuration
+        rtGradle.deployer repo:'k8sPipeline-gradle-dev-local', server: server
+        rtGradle.resolver repo:'k8sPipeline-gradle-lib-local', server: server
+    }
 
     //Clone example code from GitHub repository
-    stage 'SCM'
-        git url: 'https://github.com/xingao0803/k8s_pipeline.git', branch: 'master'
+    stage('SCM') {
+        //git url: 'https://github.com/xingao0803/jcr_pipeline.git', branch: 'master'
+        sh "cp -r /Users/xingao/Training/jcr_pipeline/jcr_pipeline/ ."
+    }
 
 	stage('Update Version') {
 	    currentVersion = "1.1.${BUILD_NUMBER}"
 		sh "sed -i '' 's/-BUILD_NUMBER-/${currentVersion}/g' gradle-example/gradle.properties"
 	}
     //Run gradle build
-    stage 'Exec Gradle'
+    stage('Exec Gradle') {
         if(CLEAN_REPO == "YES") {
             sh 'rm -rf ~/.gradle/caches'
         }
         rtGradle.run rootDir: "gradle-example/", buildFile: 'build.gradle', tasks: 'clean artifactoryPublish', buildInfo: buildInfo
         server.publishBuildInfo buildInfo        
+    }
 
-    //Publish artifacts to Artifactory along with build information and scan build artifacts in Xray
-    stage 'Publish Build Information & Scan Artifacts'
-        if (XRAY_SCAN == "YES") {
-            def scanConfig = [
-                'buildName'      : env.JOB_NAME,
-                'buildNumber'    : env.BUILD_NUMBER,
-                'failBuild'      : false
+    stage('Exec Gradle') {
+        if(CLEAN_REPO == "YES") {
+            sh 'rm -rf ~/.gradle/caches'
+        }
+        rtGradle.run rootDir: "gradle-example/", buildFile: 'build.gradle', tasks: 'clean artifactoryPublish', buildInfo: buildInfo
+        server.publishBuildInfo buildInfo        
+    }
+
+    stage('Upload WAR') {
+        def uploadSpec = """{
+            "files": [
+                {
+                    "pattern": "gradle-example/services/webservice/build/libs/webservice-1.1.${BUILD_NUMBER}.war",
+                    "target": "k8sPipeline-gradle-dev-local/webservice/1.1.${BUILD_NUMBER}/webservice-1.1.${BUILD_NUMBER}.war"
+                },
+                {
+                    "pattern": "gradle-example/services/webservice/build/poms/pom-default.xml",
+                    "target": "k8sPipeline-gradle-dev-local/webservice/1.1.${BUILD_NUMBER}/webservice-1.1.${BUILD_NUMBER}.pom"
+                }
             ]
-            def scanResult = server.xrayScan scanConfig
-            echo scanResult as String
-         }
-         
+        }"""
+
+        jcrServer.upload spec: uploadSpec
+    }
+
 	stage('Function Test'){
-    	commandText = "curl  -H \"X-JFrog-Art-Api: ${user_apikey}\" -X PUT \"http://<Artifactory-Server-URL>/artifactory/api/storage/<gradle-local-repo-name>/org/jfrog/example/gradle/webservice/"+currentVersion+"/webservice-"+currentVersion+".war?properties=Functest=pass\" ";
+        sh 'echo "OK!"' 
+    	commandText = "curl  -H \"X-JFrog-Art-Api: ${user_apikey}\" -X PUT \"http://arti.local:9084/artifactory/api/storage/k8sPipeline-gradle-dev-local/webservice/1.1.${BUILD_NUMBER}/webservice-1.1.${BUILD_NUMBER}.war?properties=Functest=pass\" ";
 	    sh commandText
-	    
+        
 	} 
+	
+	
 }
+

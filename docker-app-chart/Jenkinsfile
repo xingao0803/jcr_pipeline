@@ -3,16 +3,16 @@ node {
 
 	stage('Prepare') {
 	    deleteDir()
-		rtServer = Artifactory.server('arti-pro')
+		rtServer = Artifactory.server('arti-jcr')
 	}
 
     stage('SCM') {
         /* Let's make sure we have the repository cloned to our workspace */
-        git url: 'https://github.com/xingao0803/k8s_pipeline.git', branch: 'master'
+        //git url: 'https://github.com/xingao0803/jcr_pipeline.git', branch: 'master'
+        sh "cp -r /Users/xingao/Training/jcr_pipeline/jcr_pipeline/ ."
     }
 
     stage('Install helm & JFrog CLI') {
-        dir('docker-app-chart') {
             try {
                 println "Gather helm and jfrog-cli"
 
@@ -49,25 +49,22 @@ node {
             sh "./helm version -c"
             /* This installs and configure JFrog Cli */
             sh "chmod 777 ./jfrog"
-            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'arti-credential', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
-                sh "./jfrog rt config arti-server --url http://127.0.0.1:9081/artifactory --user ${env.USERNAME} --password ${env.PASSWORD}"
+            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'arti-jcr', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+                sh "./jfrog rt config arti-server --url http://arti.local:9084/artifactory --user ${env.USERNAME} --password ${env.PASSWORD}"
             }
-        }
     }
 
     stage('Build Chart & push it to Artifactory repo') {
-        dir('docker-app-chart') {
             /* Configure helm client to point to k8s cluster */
-            sh "./helm init"
-            sh "sed -i '' 's/0.1.1/0.1.${env.BUILD_NUMBER}/' Chart.yaml"
+            //sh "./helm init"
+            sh "sed -i '' 's/0.1.1/0.1.${env.BUILD_NUMBER}/' docker-app-chart/Chart.yaml"
             sh "sed -i '' 's&docker.artifactory&${ARTDOCKER_REGISTRY}/${RELEASE_REPO}&' docker-app-chart/values.yaml"
-            sh "sed -i '' 's/latest/${IMAGE_TAG}/g' values.yaml"
-            sh "./helm package ./"
+            sh "sed -i '' 's/latest/${IMAGE_TAG}/g' docker-app-chart/values.yaml"
+            sh "./helm package ./docker-app-chart/"
             sh "./jfrog rt u '*.tgz' ${REPO} --server-id=arti-server --build-name=${env.JOB_NAME} --build-number=${env.BUILD_NUMBER}"
             sh "./jfrog rt bce ${env.JOB_NAME} ${env.BUILD_NUMBER}"
             sh "./jfrog rt dl k8spipeline-docker-release-local/docker-app/${IMAGE_TAG}/manifest.json --server-id=arti-server --build-name=${env.JOB_NAME} --build-number=${env.BUILD_NUMBER} "
             sh "./jfrog rt bp ${env.JOB_NAME} ${env.BUILD_NUMBER} --server-id=arti-server"
-        }
     }
 }
 

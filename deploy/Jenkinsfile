@@ -4,7 +4,7 @@ node {
 
 	stage('Prepare') {
 	    deleteDir()
-	    rtServer = Artifactory.server('arti-pro')
+	    rtServer = Artifactory.server('arti-jcr')
 	}
 
     stage('Install helm') {
@@ -42,9 +42,9 @@ node {
 
     stage('Configure helm & add Artifactory repo') {
         /* Configure helm client to point to k8s cluster */
-        sh './helm init --upgrade'
-        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'arti-credential', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
-            sh "./helm repo add artifactory http://127.0.0.1:9081/artifactory/k8sPipeline-helm-lib-local --username ${env.USERNAME} --password ${env.PASSWORD}"
+        //sh './helm init --upgrade'
+        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'arti-jcr', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+            sh "./helm repo add artifactory http://arti.local:9084/artifactory/k8sPipeline-helm-lib-local --username ${env.USERNAME} --password ${env.PASSWORD}"
             sh "./helm repo update"
         }
     }
@@ -55,4 +55,5 @@ node {
         sh "./helm upgrade my-docker-app --install --recreate-pods artifactory/docker-app-chart"
     }
 }
+
 
